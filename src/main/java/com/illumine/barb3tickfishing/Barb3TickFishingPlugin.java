@@ -61,7 +61,7 @@ public class Barb3TickFishingPlugin extends VitaPlugin {
         runtime = new Barb3TickRuntime(this, panel, config);
         resetSimpleCycle();
 
-        final BufferedImage icon = ImageUtil.loadImageResource(getClass(), "icon.png");
+        final BufferedImage icon = ImageUtil.loadImageResource(getClass(), "icon_v2.png");
 
         navButton = NavigationButton.builder()
                 .tooltip("illu 3Tick Barb Fishing")

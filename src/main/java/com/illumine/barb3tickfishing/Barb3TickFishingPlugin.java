@@ -35,6 +35,7 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Comparator;
 import java.util.List;
+import java.util.Locale;
 import java.util.Objects;
 import java.util.concurrent.ThreadLocalRandom;
 
@@ -56,6 +57,9 @@ public class Barb3TickFishingPlugin extends VitaPlugin {
     private Barb3TickRuntimeConfig runtimeConfig;
     private ModeScheduler modeScheduler;
     private boolean schedulerInitialized = false;
+    private long startTimeMs = 0L;
+    private long currentModeEnteredAtMs = 0L;
+    private long threeTickAccumulatedMs = 0L;
 
     private WorldPoint targetTile = null;
     private static final List<DropPattern> DROP_PATTERNS = List.of(
@@ -92,6 +96,7 @@ public class Barb3TickFishingPlugin extends VitaPlugin {
 
         clientToolbar.addNavigation(navButton);
         panel.attachPlugin(this);
+        updatePanelStatus();
     }
 
     @Override
@@ -124,12 +129,13 @@ public class Barb3TickFishingPlugin extends VitaPlugin {
 
         processQueuedSwitchIfNeeded();
 
-        if (!modeScheduler.tickFishing()) {
+        if (modeScheduler.tickFishing()) {
+            executeThreeTickCycle();
+        } else {
             executeNormalCycle();
-            return;
         }
 
-        executeThreeTickCycle();
+        updatePanelStatus();
     }
 
     private void executeThreeTickCycle() {
@@ -182,28 +188,36 @@ public class Barb3TickFishingPlugin extends VitaPlugin {
         ensureRuntimeConfigPresent();
         runtimeConfig.setFrequencyMode(mode);
         if (modeScheduler != null) {
+            finalizeActiveThreeTick(System.currentTimeMillis());
             modeScheduler.reset();
         }
         schedulerInitialized = false;
         log("Frequency mode changed to " + mode);
+        updatePanelStatus();
     }
 
     void onHerbNameChanged(String herbName) {
+        ensureRuntimeConfigPresent();
+        runtimeConfig.setHerbName(herbName);
         log("Herb name set to " + herbName);
+        updatePanelStatus();
     }
 
     void onFallbackChanged(boolean enabled) {
         ensureRuntimeConfigPresent();
         runtimeConfig.setSwitchToNormalOnSuppliesOut(enabled);
         log("Fallback to normal fishing " + (enabled ? "enabled" : "disabled"));
+        updatePanelStatus();
     }
 
     void onWorldHopToggle(boolean enabled) {
         log("World hopping " + (enabled ? "enabled" : "disabled"));
+        updatePanelStatus();
     }
 
     void onHopIntervalChanged(int minutes) {
         log("World hop interval set to " + minutes + " minute(s)");
+        updatePanelStatus();
     }
 
     void onStartRequested() {
@@ -218,7 +232,12 @@ public class Barb3TickFishingPlugin extends VitaPlugin {
         modeScheduler.reset();
         modeScheduler.initialiseMode();
         schedulerInitialized = true;
+        long now = System.currentTimeMillis();
+        startTimeMs = now;
+        currentModeEnteredAtMs = now;
+        threeTickAccumulatedMs = 0L;
         resetSimpleCycle();
+        updatePanelStatus();
         log("Start requested");
     }
 
@@ -226,11 +245,17 @@ public class Barb3TickFishingPlugin extends VitaPlugin {
         if (panel != null) {
             panel.setRunning(false);
         }
+        long now = System.currentTimeMillis();
+        finalizeActiveThreeTick(now);
         if (modeScheduler != null) {
             modeScheduler.reset();
         }
         schedulerInitialized = false;
+        startTimeMs = 0L;
+        currentModeEnteredAtMs = 0L;
+        threeTickAccumulatedMs = 0L;
         resetSimpleCycle();
+        updatePanelStatus();
         log("Stop requested");
     }
 
@@ -364,6 +389,9 @@ public class Barb3TickFishingPlugin extends VitaPlugin {
             modeScheduler.reset();
             modeScheduler.initialiseMode();
             schedulerInitialized = true;
+            if (panel != null && panel.isRunning()) {
+                currentModeEnteredAtMs = System.currentTimeMillis();
+            }
         }
     }
 
@@ -372,9 +400,134 @@ public class Barb3TickFishingPlugin extends VitaPlugin {
             return;
         }
         FishingMode nextMode = modeScheduler.tickFishing() ? FishingMode.NORMAL : FishingMode.THREE_TICK;
-        modeScheduler.setFishingMode(nextMode);
+        applyScheduledMode(nextMode);
         modeScheduler.clearQueue();
         resetSimpleCycle();
+    }
+
+    private void applyScheduledMode(FishingMode nextMode) {
+        if (modeScheduler == null) {
+            return;
+        }
+        long now = System.currentTimeMillis();
+        if (modeScheduler.tickFishing() && currentModeEnteredAtMs > 0L) {
+            threeTickAccumulatedMs += Math.max(0L, now - currentModeEnteredAtMs);
+        }
+        modeScheduler.setFishingMode(nextMode);
+        currentModeEnteredAtMs = now;
+    }
+
+    private void finalizeActiveThreeTick(long now) {
+        if (modeScheduler != null && modeScheduler.tickFishing() && currentModeEnteredAtMs > 0L) {
+            threeTickAccumulatedMs += Math.max(0L, now - currentModeEnteredAtMs);
+        }
+    }
+
+    private void updatePanelStatus() {
+        if (panel == null) {
+            return;
+        }
+        boolean running = panel.isRunning();
+        String modeLabel;
+        if (running && modeScheduler != null) {
+            modeLabel = modeScheduler.tickFishing() ? "3Tick" : "Normal";
+        } else {
+            modeLabel = "Idle";
+        }
+
+        Barb3TickFishingSidePanel.StatusSnapshot snapshot = new Barb3TickFishingSidePanel.StatusSnapshot(
+                modeLabel,
+                getFrequencyDisplay(),
+                formatThreeTickShare(),
+                formatSwitchCountdown(),
+                formatWorld(),
+                formatNextHop(),
+                formatSuppliesStatus()
+        );
+        panel.updateStatus(snapshot);
+    }
+
+    private String getFrequencyDisplay() {
+        ensureRuntimeConfigPresent();
+        ThreeTickFrequencyMode currentMode = runtimeConfig.frequencyMode();
+        if (currentMode == ThreeTickFrequencyMode.RANDOM && modeScheduler != null) {
+            ThreeTickFrequencyMode profile = modeScheduler.activeRandomProfile();
+            String current = (panel != null && panel.isRunning() && modeScheduler.tickFishing()) ? "3T" : "Normal";
+            String profLabel = (profile == null) ? "—" : profile.shortLabel();
+            return "Random(" + current + " " + profLabel + ")";
+        }
+        return currentMode.label();
+    }
+
+    private String formatThreeTickShare() {
+        if (startTimeMs <= 0L) {
+            return "0.0%";
+        }
+        long now = System.currentTimeMillis();
+        long total = Math.max(1L, now - startTimeMs);
+        long threeTickTime = threeTickAccumulatedMs;
+        if (modeScheduler != null && modeScheduler.tickFishing() && currentModeEnteredAtMs > 0L) {
+            threeTickTime += Math.max(0L, now - currentModeEnteredAtMs);
+        }
+        double share = Math.max(0.0, Math.min(100.0, (double) threeTickTime / (double) total * 100.0));
+        return String.format(Locale.ENGLISH, "%.1f%%", share);
+    }
+
+    private String formatSwitchCountdown() {
+        if (panel == null || !panel.isRunning() || modeScheduler == null || runtimeConfig == null) {
+            return "N/A";
+        }
+        if (!runtimeConfig.switchingEnabled()) {
+            return "N/A";
+        }
+        long remaining = modeScheduler.modeExpiresAtMs() - System.currentTimeMillis();
+        if (remaining <= 0L) {
+            return "0s";
+        }
+        return formatDurationShort(remaining);
+    }
+
+    private String formatWorld() {
+        if (client == null || client.getLocalPlayer() == null) {
+            return "—";
+        }
+        int world = client.getWorld();
+        return world > 0 ? Integer.toString(world) : "—";
+    }
+
+    private String formatNextHop() {
+        return "N/A";
+    }
+
+    private String formatSuppliesStatus() {
+        if (panel == null || !panel.isRunning() || client == null || client.getLocalPlayer() == null) {
+            return "—";
+        }
+        ensureRuntimeConfigPresent();
+        if (runtimeConfig.frequencyMode() == ThreeTickFrequencyMode.NEVER) {
+            return "N/A";
+        }
+        ItemEx tar = InventoryQuery.fromInventoryId(InventoryID.INV)
+                .withName("Swamp tar")
+                .first();
+        ItemEx herb = InventoryQuery.fromInventoryId(InventoryID.INV)
+                .withName(runtimeConfig.herbName())
+                .first();
+        return (tar != null && herb != null) ? "OK" : "Check";
+    }
+
+    private static String formatDurationShort(long millis) {
+        long totalSeconds = Math.max(0L, millis / 1000L);
+        long hours = totalSeconds / 3600L;
+        long minutes = (totalSeconds % 3600L) / 60L;
+        long seconds = totalSeconds % 60L;
+        if (hours > 0L) {
+            return String.format(Locale.ENGLISH, "%dh%02dm", hours, minutes);
+        }
+        if (minutes > 0L) {
+            return String.format(Locale.ENGLISH, "%dm%02ds", minutes, seconds);
+        }
+        return String.format(Locale.ENGLISH, "%ds", seconds);
     }
 
     private enum DropPattern {

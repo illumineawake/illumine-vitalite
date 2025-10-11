@@ -3,6 +3,7 @@ package com.illumine.barb3tickfishing;
 import com.tonic.model.ui.components.FancyButton;
 import com.tonic.model.ui.components.FancyCard;
 import com.tonic.model.ui.components.FancyDropdown;
+import com.tonic.model.ui.components.VPluginPanel;
 import net.runelite.client.ui.ColorScheme;
 import net.runelite.client.ui.PluginPanel;
 
@@ -13,7 +14,6 @@ import javax.swing.BoxLayout;
 import javax.swing.JCheckBox;
 import javax.swing.JLabel;
 import javax.swing.JPanel;
-import javax.swing.JScrollPane;
 import javax.swing.JSpinner;
 import javax.swing.JTextField;
 import javax.swing.SpinnerNumberModel;
@@ -60,11 +60,8 @@ public class Barb3TickFishingSidePanel extends PluginPanel
 
         setBackground(ColorScheme.DARK_GRAY_COLOR);
         setBorder(BorderFactory.createEmptyBorder(PANEL_PADDING, PANEL_PADDING, PANEL_PADDING, PANEL_PADDING));
-        setLayout(new BorderLayout());
-
-        JPanel content = new JPanel();
-        content.setBackground(ColorScheme.DARK_GRAY_COLOR);
-        content.setLayout(new GridBagLayout());
+        // Lay out directly on the PluginPanel, mirroring Example plugin
+        setLayout(new GridBagLayout());
 
         GridBagConstraints c = new GridBagConstraints();
         c.gridx = 0;
@@ -74,36 +71,36 @@ public class Barb3TickFishingSidePanel extends PluginPanel
         c.insets = new Insets(0, 0, 8, 0);
 
         FancyCard card = new FancyCard(
-                "illu 3Tick Barb Fishing",
-                "Vitalite port of illumine's Powbot barbarian fishing script."
+                "illu 3T",
+                "illumine's Vitalite barbarian fishing script."
         );
-        content.add(card, c);
+        add(card, c);
         c.gridy++;
 
         runtimeLabel = createRuntimeLabel();
-        content.add(buildRuntimePanel(), c);
+        add(buildRuntimePanel(), c);
         c.gridy++;
 
         frequencyDropdown = new FancyDropdown<>("3T Frequency Mode", ThreeTickFrequencyMode.class);
         frequencyDropdown.setSelectedItem(config.frequencyMode());
         frequencyDropdown.addSelectionListener(e -> handleFrequencyChange());
-        content.add(frequencyDropdown, c);
+        add(frequencyDropdown, c);
         c.gridy++;
 
         herbNameField = createHerbField();
-        content.add(herbNameField, c);
+        add(herbNameField, c);
         c.gridy++;
 
         fallbackCheckbox = new JCheckBox("Fallback to normal when supplies run out", config.fallbackToNormal());
         styleCheckBox(fallbackCheckbox);
         fallbackCheckbox.addActionListener(e -> handleFallbackToggle());
-        content.add(fallbackCheckbox, c);
+        add(fallbackCheckbox, c);
         c.gridy++;
 
         worldHopCheckbox = new JCheckBox("Allow world hopping", config.allowWorldHop());
         styleCheckBox(worldHopCheckbox);
         worldHopCheckbox.addActionListener(e -> handleWorldHopToggle());
-        content.add(worldHopCheckbox, c);
+        add(worldHopCheckbox, c);
         c.gridy++;
 
         hopIntervalSpinner = createHopIntervalSpinner();
@@ -113,30 +110,25 @@ public class Barb3TickFishingSidePanel extends PluginPanel
         hopLabel.setForeground(Color.WHITE);
         hopPanel.add(hopLabel, BorderLayout.NORTH);
         hopPanel.add(hopIntervalSpinner, BorderLayout.CENTER);
-        content.add(hopPanel, c);
+        // Constrain hopPanel to plugin width
+        hopPanel.setMaximumSize(new Dimension(VPluginPanel.PANEL_WIDTH - 20, hopPanel.getPreferredSize().height));
+        add(hopPanel, c);
         c.gridy++;
 
         startStopButton = new FancyButton("Start");
         startStopButton.setAlignmentX(Component.CENTER_ALIGNMENT);
         startStopButton.addActionListener(e -> toggleRunningState());
-        content.add(startStopButton, c);
+        add(startStopButton, c);
         c.gridy++;
 
         JPanel statusPanel = buildStatusPanel();
-        content.add(statusPanel, c);
+        add(statusPanel, c);
         c.gridy++;
 
         c.weighty = 1;
         JPanel spacer = new JPanel();
         spacer.setOpaque(false);
-        content.add(spacer, c);
-
-        JScrollPane scrollPane = new JScrollPane(content);
-        scrollPane.setBorder(BorderFactory.createEmptyBorder());
-        scrollPane.getViewport().setBackground(ColorScheme.DARK_GRAY_COLOR);
-        scrollPane.setHorizontalScrollBarPolicy(JScrollPane.HORIZONTAL_SCROLLBAR_NEVER);
-
-        add(scrollPane, BorderLayout.CENTER);
+        add(spacer, c);
 
         runtimeTimer = new Timer(250, e -> updateRuntime());
         setWorldHopControlsState(worldHopCheckbox.isSelected());
@@ -250,7 +242,8 @@ public class Barb3TickFishingSidePanel extends PluginPanel
     private JTextField createHerbField()
     {
         JTextField field = new JTextField(config.herbName());
-        field.setMaximumSize(new Dimension(PluginPanel.PANEL_WIDTH - 40, 28));
+        // Match VitaLite component widths so we don't overflow
+        field.setMaximumSize(new Dimension(VPluginPanel.PANEL_WIDTH - 40, 28));
         field.addActionListener(e -> handleHerbChanged());
         field.addFocusListener(new java.awt.event.FocusAdapter()
         {
@@ -417,19 +410,38 @@ public class Barb3TickFishingSidePanel extends PluginPanel
 
     private JPanel createStatusRow(StatusField field)
     {
-        JPanel row = new JPanel(new BorderLayout());
+        JPanel row = new JPanel(new GridBagLayout());
         row.setOpaque(false);
+        row.setAlignmentX(Component.LEFT_ALIGNMENT);
+
+        GridBagConstraints c = new GridBagConstraints();
+        c.gridx = 0;
+        c.gridy = 0;
+        c.weightx = 1;
+        c.fill = GridBagConstraints.HORIZONTAL;
+        c.anchor = GridBagConstraints.WEST;
 
         JLabel label = new JLabel(field.displayName());
         label.setForeground(Color.LIGHT_GRAY);
-        row.add(label, BorderLayout.WEST);
+        row.add(label, c);
 
+        c.gridx = 1;
+        c.weightx = 0;
+        c.insets = new Insets(0, 8, 0, 0);
+        c.anchor = GridBagConstraints.EAST;
         JLabel value = new JLabel("—");
         value.setForeground(Color.WHITE);
         value.setHorizontalAlignment(JLabel.RIGHT);
-        row.add(value, BorderLayout.EAST);
+        Dimension valueSize = value.getPreferredSize();
+        int height = valueSize != null ? valueSize.height : 18;
+        value.setPreferredSize(new Dimension(40, height));
+        value.setMinimumSize(new Dimension(40, height));
+        value.setMaximumSize(new Dimension(40, height));
+        row.add(value, c);
 
         statusLabels.put(field, value);
+        // Keep rows within plugin width to avoid overflow
+        row.setMaximumSize(new Dimension(VPluginPanel.PANEL_WIDTH - 20, height + 6));
         return row;
     }
 

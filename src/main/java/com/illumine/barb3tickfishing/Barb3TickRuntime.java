@@ -23,7 +23,6 @@ import java.util.Collections;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Locale;
-import java.util.Objects;
 import java.util.concurrent.ThreadLocalRandom;
 
 import static com.illumine.barb3tickfishing.Barb3TickRuntime.FishingMode.NORMAL;
@@ -544,10 +543,10 @@ class Barb3TickRuntime
         TabsAPI.open(com.tonic.data.Tab.INVENTORY_TAB);
         String herbName = suppliesManager.herbName();
         ItemEx tar = InventoryQuery.fromInventoryId(InventoryID.INV)
-                .keepIf(item -> Objects.equals(item.getName(), "Swamp tar"))
+                .withName("Swamp tar")
                 .first();
         ItemEx herb = InventoryQuery.fromInventoryId(InventoryID.INV)
-                .keepIf(item -> item.getName() != null && item.getName().equalsIgnoreCase(herbName))
+                .withName(herbName)
                 .first();
         boolean success = tar != null && herb != null;
         if (success)
@@ -647,7 +646,7 @@ class Barb3TickRuntime
             NPC locked = new NpcQuery()
                     .withName("Fishing spot")
                     .withAction("Use-rod")
-                    .keepIf(npc -> npc.getWorldLocation().equals(targetSpotTile))
+                    .atLocation(targetSpotTile)
                     .first();
             if (locked != null)
             {
@@ -709,10 +708,7 @@ class Barb3TickRuntime
     private void randomizedDropAllLeapingFish()
     {
         List<ItemEx> leapingFish = InventoryQuery.fromInventoryId(InventoryID.INV)
-                .keepIf(item -> {
-                    String name = item.getName();
-                    return name != null && name.contains("Leaping");
-                })
+                .withNameContains("Leaping")
                 .collect();
         if (leapingFish.isEmpty())
         {
@@ -740,20 +736,14 @@ class Barb3TickRuntime
     private boolean dropOneLeapingFish()
     {
         int count = InventoryQuery.fromInventoryId(InventoryID.INV)
-                .keepIf(item -> {
-                    String name = item.getName();
-                    return name != null && name.contains("Leaping");
-                })
+                .withNameContains("Leaping")
                 .count();
         if (count <= 1)
         {
             return false;
         }
         ItemEx fish = InventoryQuery.fromInventoryId(InventoryID.INV)
-                .keepIf(item -> {
-                    String name = item.getName();
-                    return name != null && name.contains("Leaping");
-                })
+                .withNameContains("Leaping")
                 .first();
         if (fish == null)
         {
@@ -812,7 +802,7 @@ class Barb3TickRuntime
     private boolean hasItem(String name)
     {
         ItemEx item = InventoryQuery.fromInventoryId(InventoryID.INV)
-                .keepIf(i -> i.getName() != null && i.getName().equalsIgnoreCase(name))
+                .withName(name)
                 .first();
         return item != null;
     }

@@ -128,7 +128,7 @@ class SuppliesManager
     private boolean hasItem(String name)
     {
         ItemEx item = InventoryQuery.fromInventoryId(InventoryID.INV)
-                .keepIf(i -> i.getName() != null && i.getName().equalsIgnoreCase(name))
+                .withName(name)
                 .first();
         return item != null;
     }
@@ -148,11 +148,8 @@ class SuppliesManager
     private ItemEx findCleanableHerb()
     {
         return InventoryQuery.fromInventoryId(InventoryID.INV)
-                .keepIf(item -> {
-                    String name = item.getName();
-                    return name != null && name.toLowerCase().contains("grimy");
-                })
-                .keepIf(item -> item.hasAction("Clean"))
+                .withNameContains("Grimy")
+                .withAction("Clean")
                 .first();
     }
 }

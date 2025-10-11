@@ -2,17 +2,20 @@ package com.illumine.barb3tickfishing;
 
 import com.google.inject.Provides;
 import com.tonic.Logger;
+import com.tonic.api.entities.ActorAPI;
 import com.tonic.api.entities.NpcAPI;
-import com.tonic.api.game.GameAPI;
+import com.tonic.api.entities.PlayerAPI;
 import com.tonic.api.game.MovementAPI;
 import com.tonic.api.threaded.Delays;
 import com.tonic.api.widgets.InventoryAPI;
 import com.tonic.data.ItemEx;
+import com.tonic.queries.PlayerQuery;
 import com.tonic.services.GameManager;
 import com.tonic.util.ClickManagerUtil;
 import com.tonic.util.VitaPlugin;
 import com.tonic.queries.InventoryQuery;
 import com.tonic.queries.NpcQuery;
+import net.runelite.api.Actor;
 import net.runelite.api.Client;
 import net.runelite.api.NPC;
 import net.runelite.api.coords.WorldPoint;
@@ -28,7 +31,12 @@ import net.runelite.client.util.ImageUtil;
 
 import javax.inject.Inject;
 import java.awt.image.BufferedImage;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.Comparator;
+import java.util.List;
 import java.util.Objects;
+import java.util.concurrent.ThreadLocalRandom;
 
 @PluginDescriptor(
         name = "illu 3Tick Barb Fishing",
@@ -48,6 +56,14 @@ public class Barb3TickFishingPlugin extends VitaPlugin {
     private Barb3TickRuntime runtime;
 
     private WorldPoint targetTile = null;
+    private static final List<DropPattern> DROP_PATTERNS = List.of(
+            DropPattern.LEFT_TO_RIGHT,
+            DropPattern.RIGHT_TO_LEFT,
+            DropPattern.TOP_TO_BOTTOM,
+            DropPattern.RANDOM
+    );
+    private DropPattern selectedDropPattern = DropPattern.LEFT_TO_RIGHT;
+    private int playerNameLengthForPattern = 0;
 
     @Provides
     Barb3TickFishingConfig provideConfig(ConfigManager configManager) {
@@ -61,7 +77,7 @@ public class Barb3TickFishingPlugin extends VitaPlugin {
         runtime = new Barb3TickRuntime(this, panel, config);
         resetSimpleCycle();
 
-        final BufferedImage icon = ImageUtil.loadImageResource(getClass(), "icon_v2.png");
+        final BufferedImage icon = ImageUtil.loadImageResource(getClass(), "icon.png");
 
         navButton = NavigationButton.builder()
                 .tooltip("illu 3Tick Barb Fishing")
@@ -94,6 +110,16 @@ public class Barb3TickFishingPlugin extends VitaPlugin {
             return;
         }
 
+        ThreeTickFrequencyMode mode = config.frequencyMode();
+        if (mode == ThreeTickFrequencyMode.NEVER) {
+            executeNormalCycle();
+            return;
+        }
+
+        executeThreeTickCycle();
+    }
+
+    private void executeThreeTickCycle() {
         if (!attemptClickFishingSpot()) {
             Delays.tick();
             return;
@@ -107,6 +133,23 @@ public class Barb3TickFishingPlugin extends VitaPlugin {
 
         if (!attemptCombineAndDrop()) {
             Delays.tick(1);
+        }
+    }
+
+    private void executeNormalCycle() {
+        if (InventoryAPI.isFull()) {
+            dropAllLeapingFish();
+            return;
+        }
+
+        Actor interacting = client.getLocalPlayer().getInteracting();
+
+        if (interacting != null) {
+            return;
+        }
+
+        if (!attemptClickFishingSpot()) {
+            Delays.tick();
         }
     }
 
@@ -237,7 +280,113 @@ public class Barb3TickFishingPlugin extends VitaPlugin {
         }
     }
 
+    private void dropAllLeapingFish() {
+        List<ItemEx> leapingFish = InventoryQuery.fromInventoryId(InventoryID.INV)
+                .withNameContains("Leaping")
+                .collect();
+        if (leapingFish.isEmpty()) {
+            return;
+        }
+
+        DropPattern pattern = resolveDropPatternForPlayer();
+        List<ItemEx> dropOrder = pattern.orderItems(leapingFish);
+        int dropped = 0;
+        for (ItemEx fish : dropOrder) {
+            if (fish == null) {
+                continue;
+            }
+            InventoryAPI.interact(fish, "Drop");
+            dropped++;
+            Delays.wait(ThreadLocalRandom.current().nextInt(25, 221));
+        }
+        if (dropped > 0) {
+            Delays.wait(ThreadLocalRandom.current().nextInt(50, 3001));
+            log("Normal: dropped " + dropped + " leaping fish using " + pattern.displayName());
+        }
+    }
+
+    private DropPattern resolveDropPatternForPlayer() {
+        if (client == null || client.getLocalPlayer() == null) {
+            selectedDropPattern = DropPattern.LEFT_TO_RIGHT;
+            playerNameLengthForPattern = 0;
+            return selectedDropPattern;
+        }
+        String rawName = client.getLocalPlayer().getName();
+        if (rawName == null || rawName.isEmpty()) {
+            selectedDropPattern = DropPattern.LEFT_TO_RIGHT;
+            playerNameLengthForPattern = 0;
+            return selectedDropPattern;
+        }
+        int length = rawName.length();
+        if (length != playerNameLengthForPattern) {
+            playerNameLengthForPattern = length;
+            int index = Math.floorMod(length, DROP_PATTERNS.size());
+            selectedDropPattern = DROP_PATTERNS.get(index);
+            log("Normal: drop pattern set to " + selectedDropPattern.displayName());
+        }
+        return selectedDropPattern;
+    }
+
     private void resetSimpleCycle() {
         targetTile = null;
+        selectedDropPattern = DropPattern.LEFT_TO_RIGHT;
+        playerNameLengthForPattern = 0;
+    }
+
+    private enum DropPattern {
+        LEFT_TO_RIGHT("left to right") {
+            @Override
+            List<ItemEx> orderItems(List<ItemEx> items) {
+                List<ItemEx> ordered = new ArrayList<>(items);
+                ordered.sort(Comparator.comparingInt(ItemEx::getSlot));
+                return ordered;
+            }
+        },
+        RIGHT_TO_LEFT("right to left") {
+            @Override
+            List<ItemEx> orderItems(List<ItemEx> items) {
+                List<ItemEx> ordered = new ArrayList<>(items);
+                ordered.sort(Comparator.comparingInt(ItemEx::getSlot).reversed());
+                return ordered;
+            }
+        },
+        TOP_TO_BOTTOM("top to bottom") {
+            @Override
+            List<ItemEx> orderItems(List<ItemEx> items) {
+                List<ItemEx> ordered = new ArrayList<>(items);
+                ordered.sort(Comparator
+                        .comparingInt((ItemEx item) -> inventoryRow(item.getSlot()))
+                        .thenComparingInt((ItemEx item) -> inventoryColumn(item.getSlot())));
+                return ordered;
+            }
+        },
+        RANDOM("random") {
+            @Override
+            List<ItemEx> orderItems(List<ItemEx> items) {
+                List<ItemEx> ordered = new ArrayList<>(items);
+                Collections.shuffle(ordered, ThreadLocalRandom.current());
+                return ordered;
+            }
+        };
+
+        private final String displayName;
+
+        DropPattern(String displayName) {
+            this.displayName = displayName;
+        }
+
+        abstract List<ItemEx> orderItems(List<ItemEx> items);
+
+        String displayName() {
+            return displayName;
+        }
+
+        private static int inventoryRow(int slot) {
+            return slot / 4;
+        }
+
+        private static int inventoryColumn(int slot) {
+            return slot % 4;
+        }
     }
 }

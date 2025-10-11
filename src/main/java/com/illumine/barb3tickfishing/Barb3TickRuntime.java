@@ -25,16 +25,11 @@ import java.util.List;
 import java.util.Locale;
 import java.util.concurrent.ThreadLocalRandom;
 
-import static com.illumine.barb3tickfishing.Barb3TickRuntime.FishingMode.NORMAL;
-import static com.illumine.barb3tickfishing.Barb3TickRuntime.FishingMode.THREE_TICK;
+import static com.illumine.barb3tickfishing.FishingMode.NORMAL;
+import static com.illumine.barb3tickfishing.FishingMode.THREE_TICK;
 
 class Barb3TickRuntime
 {
-    enum FishingMode
-    {
-        THREE_TICK,
-        NORMAL
-    }
 
     private enum NextAction
     {
@@ -54,7 +49,7 @@ class Barb3TickRuntime
     private final Barb3TickFishingPlugin plugin;
     private final Barb3TickFishingSidePanel panel;
     private final Barb3TickRuntimeConfig runtimeConfig = new Barb3TickRuntimeConfig();
-    private final ModeScheduler modeScheduler = new ModeScheduler(this, runtimeConfig);
+    private final ModeScheduler modeScheduler = new ModeScheduler(runtimeConfig, this::log);
     private final SuppliesManager suppliesManager = new SuppliesManager(this);
     private final WorldHopController worldHopController = new WorldHopController(this);
 

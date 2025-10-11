@@ -53,7 +53,9 @@ public class Barb3TickFishingPlugin extends VitaPlugin {
     private NavigationButton navButton;
     private Barb3TickFishingSidePanel panel;
     private Barb3TickFishingConfig config;
-    private Barb3TickRuntime runtime;
+    private Barb3TickRuntimeConfig runtimeConfig;
+    private ModeScheduler modeScheduler;
+    private boolean schedulerInitialized = false;
 
     private WorldPoint targetTile = null;
     private static final List<DropPattern> DROP_PATTERNS = List.of(
@@ -74,7 +76,9 @@ public class Barb3TickFishingPlugin extends VitaPlugin {
     protected void startUp() {
         panel = injector.getInstance(Barb3TickFishingSidePanel.class);
         config = injector.getInstance(Barb3TickFishingConfig.class);
-        runtime = new Barb3TickRuntime(this, panel, config);
+        runtimeConfig = new Barb3TickRuntimeConfig();
+        runtimeConfig.applyFromConfig(config);
+        modeScheduler = null;
         resetSimpleCycle();
 
         final BufferedImage icon = ImageUtil.loadImageResource(getClass(), "icon.png");
@@ -100,7 +104,8 @@ public class Barb3TickFishingPlugin extends VitaPlugin {
             panel.shutdown();
             panel = null;
         }
-        runtime = null;
+        modeScheduler = null;
+        runtimeConfig = null;
         resetSimpleCycle();
     }
 
@@ -110,8 +115,16 @@ public class Barb3TickFishingPlugin extends VitaPlugin {
             return;
         }
 
-        ThreeTickFrequencyMode mode = config.frequencyMode();
-        if (mode == ThreeTickFrequencyMode.NEVER) {
+        ensureSchedulerReady();
+
+        long now = System.currentTimeMillis();
+        if (modeScheduler.modeExpiresAtMs() > 0 && now >= modeScheduler.modeExpiresAtMs()) {
+            modeScheduler.onWindowExpired();
+        }
+
+        processQueuedSwitchIfNeeded();
+
+        if (!modeScheduler.tickFishing()) {
             executeNormalCycle();
             return;
         }
@@ -166,37 +179,30 @@ public class Barb3TickFishingPlugin extends VitaPlugin {
     }
 
     void onFrequencyModeChanged(ThreeTickFrequencyMode mode) {
-        if (runtime != null) {
-            runtime.onFrequencyModeChanged(mode);
+        ensureRuntimeConfigPresent();
+        runtimeConfig.setFrequencyMode(mode);
+        if (modeScheduler != null) {
+            modeScheduler.reset();
         }
+        schedulerInitialized = false;
         log("Frequency mode changed to " + mode);
     }
 
     void onHerbNameChanged(String herbName) {
-        if (runtime != null) {
-            runtime.onHerbNameChanged(herbName);
-        }
         log("Herb name set to " + herbName);
     }
 
     void onFallbackChanged(boolean enabled) {
-        if (runtime != null) {
-            runtime.onFallbackChanged(enabled);
-        }
+        ensureRuntimeConfigPresent();
+        runtimeConfig.setSwitchToNormalOnSuppliesOut(enabled);
         log("Fallback to normal fishing " + (enabled ? "enabled" : "disabled"));
     }
 
     void onWorldHopToggle(boolean enabled) {
-        if (runtime != null) {
-            runtime.onWorldHopToggle(enabled);
-        }
         log("World hopping " + (enabled ? "enabled" : "disabled"));
     }
 
     void onHopIntervalChanged(int minutes) {
-        if (runtime != null) {
-            runtime.onHopIntervalChanged(minutes);
-        }
         log("World hop interval set to " + minutes + " minute(s)");
     }
 
@@ -204,6 +210,14 @@ public class Barb3TickFishingPlugin extends VitaPlugin {
         if (panel != null) {
             panel.setRunning(true);
         }
+        ensureRuntimeConfigPresent();
+        runtimeConfig.applyFromConfig(config);
+        if (modeScheduler == null) {
+            modeScheduler = new ModeScheduler(runtimeConfig, this::log);
+        }
+        modeScheduler.reset();
+        modeScheduler.initialiseMode();
+        schedulerInitialized = true;
         resetSimpleCycle();
         log("Start requested");
     }
@@ -212,6 +226,10 @@ public class Barb3TickFishingPlugin extends VitaPlugin {
         if (panel != null) {
             panel.setRunning(false);
         }
+        if (modeScheduler != null) {
+            modeScheduler.reset();
+        }
+        schedulerInitialized = false;
         resetSimpleCycle();
         log("Stop requested");
     }
@@ -306,11 +324,6 @@ public class Barb3TickFishingPlugin extends VitaPlugin {
     }
 
     private DropPattern resolveDropPatternForPlayer() {
-        if (client == null || client.getLocalPlayer() == null) {
-            selectedDropPattern = DropPattern.LEFT_TO_RIGHT;
-            playerNameLengthForPattern = 0;
-            return selectedDropPattern;
-        }
         String rawName = client.getLocalPlayer().getName();
         if (rawName == null || rawName.isEmpty()) {
             selectedDropPattern = DropPattern.LEFT_TO_RIGHT;
@@ -331,6 +344,37 @@ public class Barb3TickFishingPlugin extends VitaPlugin {
         targetTile = null;
         selectedDropPattern = DropPattern.LEFT_TO_RIGHT;
         playerNameLengthForPattern = 0;
+    }
+
+    private void ensureRuntimeConfigPresent() {
+        if (runtimeConfig == null) {
+            runtimeConfig = new Barb3TickRuntimeConfig();
+            if (config != null) {
+                runtimeConfig.applyFromConfig(config);
+            }
+        }
+    }
+
+    private void ensureSchedulerReady() {
+        ensureRuntimeConfigPresent();
+        if (modeScheduler == null) {
+            modeScheduler = new ModeScheduler(runtimeConfig, this::log);
+        }
+        if (!schedulerInitialized) {
+            modeScheduler.reset();
+            modeScheduler.initialiseMode();
+            schedulerInitialized = true;
+        }
+    }
+
+    private void processQueuedSwitchIfNeeded() {
+        if (modeScheduler == null || !modeScheduler.switchQueued()) {
+            return;
+        }
+        FishingMode nextMode = modeScheduler.tickFishing() ? FishingMode.NORMAL : FishingMode.THREE_TICK;
+        modeScheduler.setFishingMode(nextMode);
+        modeScheduler.clearQueue();
+        resetSimpleCycle();
     }
 
     private enum DropPattern {

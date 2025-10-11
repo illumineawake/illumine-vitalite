@@ -2,12 +2,12 @@ package com.illumine.barb3tickfishing;
 
 class ModeScheduler
 {
-    private final Barb3TickRuntime runtime;
     private final Barb3TickRuntimeConfig config;
+    private final java.util.function.Consumer<String> logger;
 
     private long modeExpiresAtMs = 0L;
     private boolean switchQueued = false;
-    private Barb3TickRuntime.FishingMode fishingMode = Barb3TickRuntime.FishingMode.THREE_TICK;
+    private FishingMode fishingMode = FishingMode.THREE_TICK;
 
     private ThreeTickFrequencyMode activeRandomProfile = null;
     private RandomPhase randomPhase = RandomPhase.NONE;
@@ -19,17 +19,17 @@ class ModeScheduler
         PHASE_NORMAL
     }
 
-    ModeScheduler(Barb3TickRuntime runtime, Barb3TickRuntimeConfig config)
+    ModeScheduler(Barb3TickRuntimeConfig config, java.util.function.Consumer<String> logger)
     {
-        this.runtime = runtime;
         this.config = config;
+        this.logger = (logger == null) ? s -> { } : logger;
     }
 
     void reset()
     {
         modeExpiresAtMs = 0L;
         switchQueued = false;
-        fishingMode = Barb3TickRuntime.FishingMode.THREE_TICK;
+        fishingMode = FishingMode.THREE_TICK;
         activeRandomProfile = null;
         randomPhase = RandomPhase.NONE;
     }
@@ -41,21 +41,21 @@ class ModeScheduler
         {
             pickNewRandomProfile();
             boolean startThreeTick = startsInThreeTickForProfile(activeRandomProfile);
-            fishingMode = startThreeTick ? Barb3TickRuntime.FishingMode.THREE_TICK : Barb3TickRuntime.FishingMode.NORMAL;
+            fishingMode = startThreeTick ? FishingMode.THREE_TICK : FishingMode.NORMAL;
             randomPhase = startThreeTick ? RandomPhase.PHASE_3T : RandomPhase.PHASE_NORMAL;
         }
         else
         {
             fishingMode = config.frequencyMode().startsInThreeTick()
-                    ? Barb3TickRuntime.FishingMode.THREE_TICK
-                    : Barb3TickRuntime.FishingMode.NORMAL;
+                    ? FishingMode.THREE_TICK
+                    : FishingMode.NORMAL;
         }
         scheduleNextWindow();
     }
 
     boolean tickFishing()
     {
-        return fishingMode == Barb3TickRuntime.FishingMode.THREE_TICK;
+        return fishingMode == FishingMode.THREE_TICK;
     }
 
     long modeExpiresAtMs()
@@ -78,11 +78,11 @@ class ModeScheduler
         switchQueued = false;
     }
 
-    void setFishingMode(Barb3TickRuntime.FishingMode mode)
+    void setFishingMode(FishingMode mode)
     {
         fishingMode = mode;
         scheduleNextWindow();
-        runtime.log("Switched fishing mode to " + (tickFishing() ? "3-tick" : "normal"));
+        log("Switched fishing mode to " + (tickFishing() ? "3-tick" : "normal"));
     }
 
     void refreshScheduleAfterConfigChange()
@@ -210,7 +210,7 @@ class ModeScheduler
         };
         int idx = randomInt(0, profiles.length - 1);
         activeRandomProfile = profiles[idx];
-        runtime.log("Random profile selected: " + activeRandomProfile.shortLabel());
+        log("Random profile selected: " + activeRandomProfile.shortLabel());
     }
 
     private boolean startsInThreeTickForProfile(ThreeTickFrequencyMode profile)
@@ -301,5 +301,10 @@ class ModeScheduler
             return minInclusive;
         }
         return java.util.concurrent.ThreadLocalRandom.current().nextInt(minInclusive, maxInclusive + 1);
+    }
+
+    private void log(String message)
+    {
+        logger.accept(message);
     }
 }

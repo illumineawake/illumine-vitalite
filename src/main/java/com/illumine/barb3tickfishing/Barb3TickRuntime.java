@@ -28,7 +28,7 @@ import java.util.concurrent.ThreadLocalRandom;
 import static com.illumine.barb3tickfishing.FishingMode.NORMAL;
 import static com.illumine.barb3tickfishing.FishingMode.THREE_TICK;
 
-class Barb3TickRuntime
+class Barb3TickRuntime implements WorldHopController.Host
 {
 
     private enum NextAction
@@ -273,14 +273,21 @@ class Barb3TickRuntime
         return panel;
     }
 
-    void log(String message)
+    @Override
+    public void log(String message)
     {
         plugin.log(message);
     }
 
-    Client client()
+    @Override
+    public Client getClient()
     {
         return plugin.getClient();
+    }
+
+    Client client()
+    {
+        return getClient();
     }
 
     void switchToPermanentNormalMode()
@@ -299,7 +306,8 @@ class Barb3TickRuntime
         SwingUtilities.invokeLater(() -> panel.setSelectedFrequencyMode(ThreeTickFrequencyMode.NEVER));
     }
 
-    void onWorldHopSuccess()
+    @Override
+    public void onWorldHopSuccess()
     {
         targetSpotTile = null;
         currentFishSpot = null;

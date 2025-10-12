@@ -5,7 +5,6 @@ import com.tonic.Logger;
 import com.tonic.api.entities.ActorAPI;
 import com.tonic.api.entities.NpcAPI;
 import com.tonic.api.entities.PlayerAPI;
-import com.tonic.api.game.MovementAPI;
 import com.tonic.api.threaded.Delays;
 import com.tonic.api.widgets.InventoryAPI;
 import com.tonic.data.ItemEx;
@@ -36,15 +35,14 @@ import java.util.Collections;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Locale;
-import java.util.Objects;
 import java.util.concurrent.ThreadLocalRandom;
 
 @PluginDescriptor(
         name = "illu 3Tick Barb Fishing",
-        description = "3-tick barbarian fishing with smart mode scheduling and Vitalite UI integration.",
+        description = "3-tick barbarian fishing with smart mode scheduling",
         tags = {"fishing", "barbarian", "3tick", "vitalite", "illumine"}
 )
-public class Barb3TickFishingPlugin extends VitaPlugin {
+public class Barb3TickFishingPlugin extends VitaPlugin implements WorldHopController.Host {
     @Inject
     private ClientToolbar clientToolbar;
 
@@ -71,6 +69,8 @@ public class Barb3TickFishingPlugin extends VitaPlugin {
     private DropPattern selectedDropPattern = DropPattern.LEFT_TO_RIGHT;
     private int playerNameLengthForPattern = 0;
 
+    private WorldHopController worldHopController;
+
     @Provides
     Barb3TickFishingConfig provideConfig(ConfigManager configManager) {
         return configManager.getConfig(Barb3TickFishingConfig.class);
@@ -84,6 +84,8 @@ public class Barb3TickFishingPlugin extends VitaPlugin {
         runtimeConfig.applyFromConfig(config);
         modeScheduler = null;
         resetSimpleCycle();
+        worldHopController = new WorldHopController(this);
+        worldHopController.reset();
 
         final BufferedImage icon = ImageUtil.loadImageResource(getClass(), "icon.png");
 
@@ -112,6 +114,10 @@ public class Barb3TickFishingPlugin extends VitaPlugin {
         modeScheduler = null;
         runtimeConfig = null;
         resetSimpleCycle();
+        if (worldHopController != null) {
+            worldHopController.reset();
+            worldHopController = null;
+        }
     }
 
     @Override
@@ -123,6 +129,19 @@ public class Barb3TickFishingPlugin extends VitaPlugin {
         ensureSchedulerReady();
 
         long now = System.currentTimeMillis();
+        if (worldHopController != null) {
+            worldHopController.updateHopDue(now);
+            if (worldHopController.canWorldHop(true)) {
+                boolean hopped = worldHopController.performWorldHop();
+                worldHopController.scheduleNextHop();
+                if (!hopped) {
+                    resetSimpleCycle();
+                    Delays.wait(ThreadLocalRandom.current().nextInt(400, 800));
+                }
+                updatePanelStatus();
+                return;
+            }
+        }
         if (modeScheduler.modeExpiresAtMs() > 0 && now >= modeScheduler.modeExpiresAtMs()) {
             modeScheduler.onWindowExpired();
         }
@@ -172,6 +191,7 @@ public class Barb3TickFishingPlugin extends VitaPlugin {
         }
     }
 
+    @Override
     public Client getClient() {
         return client;
     }
@@ -180,8 +200,14 @@ public class Barb3TickFishingPlugin extends VitaPlugin {
         return config;
     }
 
-    void log(String message) {
+    @Override
+    public void log(String message) {
         Logger.info("[illu3TBarb] " + "[" + GameManager.getTickCount() + "]" + message);
+    }
+
+    @Override
+    public void onWorldHopSuccess() {
+        resetSimpleCycle();
     }
 
     void onFrequencyModeChanged(ThreeTickFrequencyMode mode) {
@@ -211,11 +237,19 @@ public class Barb3TickFishingPlugin extends VitaPlugin {
     }
 
     void onWorldHopToggle(boolean enabled) {
+        if (worldHopController != null) {
+            int interval = Math.max(1, config != null ? config.worldHopIntervalMinutes() : 10);
+            worldHopController.setHopIntervalMinutes(interval);
+            worldHopController.setHopEnabled(enabled);
+        }
         log("World hopping " + (enabled ? "enabled" : "disabled"));
         updatePanelStatus();
     }
 
     void onHopIntervalChanged(int minutes) {
+        if (worldHopController != null) {
+            worldHopController.setHopIntervalMinutes(Math.max(1, minutes));
+        }
         log("World hop interval set to " + minutes + " minute(s)");
         updatePanelStatus();
     }
@@ -237,6 +271,9 @@ public class Barb3TickFishingPlugin extends VitaPlugin {
         currentModeEnteredAtMs = now;
         threeTickAccumulatedMs = 0L;
         resetSimpleCycle();
+        if (worldHopController != null) {
+            worldHopController.initialize(config.allowWorldHop(), config.worldHopIntervalMinutes());
+        }
         updatePanelStatus();
         log("Start requested");
     }
@@ -255,6 +292,9 @@ public class Barb3TickFishingPlugin extends VitaPlugin {
         currentModeEnteredAtMs = 0L;
         threeTickAccumulatedMs = 0L;
         resetSimpleCycle();
+        if (worldHopController != null) {
+            worldHopController.reset();
+        }
         updatePanelStatus();
         log("Stop requested");
     }
@@ -340,10 +380,10 @@ public class Barb3TickFishingPlugin extends VitaPlugin {
             }
             InventoryAPI.interact(fish, "Drop");
             dropped++;
-            Delays.wait(ThreadLocalRandom.current().nextInt(25, 221));
+            Delays.wait(ThreadLocalRandom.current().nextInt(25, 500));
         }
         if (dropped > 0) {
-            Delays.wait(ThreadLocalRandom.current().nextInt(50, 3001));
+            Delays.wait(ThreadLocalRandom.current().nextInt(50, 3000));
             log("Normal: dropped " + dropped + " leaping fish using " + pattern.displayName());
         }
     }
@@ -488,6 +528,12 @@ public class Barb3TickFishingPlugin extends VitaPlugin {
     }
 
     private String formatWorld() {
+        if (worldHopController != null) {
+            String label = worldHopController.formatCurrentWorld();
+            if (!"—".equals(label) && label != null && !label.isBlank()) {
+                return label.startsWith("W") ? label.substring(1) : label;
+            }
+        }
         if (client == null || client.getLocalPlayer() == null) {
             return "—";
         }
@@ -496,7 +542,17 @@ public class Barb3TickFishingPlugin extends VitaPlugin {
     }
 
     private String formatNextHop() {
-        return "N/A";
+        if (panel == null || !panel.isRunning() || worldHopController == null) {
+            return "N/A";
+        }
+        String countdown = worldHopController.formatTimeToHop();
+        if (countdown == null || countdown.isBlank() || "—".equals(countdown)) {
+            return "N/A";
+        }
+        if ("00:00".equals(countdown)) {
+            return "0s";
+        }
+        return countdown;
     }
 
     private String formatSuppliesStatus() {

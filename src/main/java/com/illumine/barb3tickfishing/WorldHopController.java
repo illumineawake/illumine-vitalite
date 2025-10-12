@@ -15,7 +15,16 @@ import java.util.stream.Collectors;
 
 class WorldHopController
 {
-    private final Barb3TickRuntime runtime;
+    interface Host
+    {
+        Client getClient();
+
+        void log(String message);
+
+        void onWorldHopSuccess();
+    }
+
+    private final Host host;
 
     private boolean hopEnabled = false;
     private int hopIntervalMinutes = 10;
@@ -24,9 +33,9 @@ class WorldHopController
     private int currentWorldId = -1;
     private WorldRegion homeRegion = null;
 
-    WorldHopController(Barb3TickRuntime runtime)
+    WorldHopController(Host host)
     {
-        this.runtime = runtime;
+        this.host = host;
     }
 
     void reset()
@@ -96,7 +105,7 @@ class WorldHopController
         World current = WorldsAPI.getCurrentWorld();
         if (current == null)
         {
-            runtime.log("Unable to resolve current world for hopping");
+            host.log("Unable to resolve current world for hopping");
             return false;
         }
         currentWorldId = current.getId();
@@ -115,16 +124,16 @@ class WorldHopController
 
         if (candidates.isEmpty())
         {
-            runtime.log("No eligible worlds available for hopping");
+            host.log("No eligible worlds available for hopping");
             return false;
         }
 
         Collections.shuffle(candidates);
-        Client client = runtime.plugin().getClient();
+        Client client = host.getClient();
         for (World candidate : candidates)
         {
             int targetId = candidate.getId();
-            runtime.log("Attempting to hop to world " + targetId);
+            host.log("Attempting to hop to world " + targetId);
             WorldsAPI.hop(candidate);
 
             boolean hopped = waitForWorld(client, targetId);
@@ -132,12 +141,12 @@ class WorldHopController
             {
                 currentWorldId = targetId;
                 homeRegion = candidate.getRegion();
-                runtime.onWorldHopSuccess();
-                runtime.log("World-hop: switched to world " + targetId);
+                host.onWorldHopSuccess();
+                host.log("World-hop: switched to world " + targetId);
                 return true;
             }
         }
-        runtime.log("World-hop attempts failed");
+        host.log("World-hop attempts failed");
         return false;
     }
 

@@ -162,4 +162,40 @@ final class IllumineReach {
     static boolean notFull(int worldX, int worldY, int plane) {
         return (tileFlags(worldX, worldY, plane) & CollisionDataFlag.BLOCK_MOVEMENT_FULL) == 0;
     }
+
+    // ---- Approach candidate generation (ring adjacency) ----
+    static java.util.List<WorldPoint> approachCandidates(WorldArea area) {
+        java.util.ArrayList<WorldPoint> out = new java.util.ArrayList<>();
+        WorldPoint base = area.toWorldPoint();
+        int dx = base.getX();
+        int dy = base.getY();
+        int plane = base.getPlane();
+        int east = dx + area.getWidth() - 1;
+        int north = dy + area.getHeight() - 1;
+
+        // West side
+        int x = dx - 1;
+        for (int y = dy; y <= north; y++) out.add(new WorldPoint(x, y, plane));
+        // East side
+        x = east + 1;
+        for (int y = dy; y <= north; y++) out.add(new WorldPoint(x, y, plane));
+        // South side
+        int y = dy - 1;
+        for (int xx = dx; xx <= east; xx++) out.add(new WorldPoint(xx, y, plane));
+        // North side
+        y = north + 1;
+        for (int xx = dx; xx <= east; xx++) out.add(new WorldPoint(xx, y, plane));
+
+        return out;
+    }
+
+    static boolean isValidApproachForArea(WorldArea area, WorldPoint cand, int blockAccessFlags) {
+        WorldPoint base = area.toWorldPoint();
+        int dx = base.getX();
+        int dy = base.getY();
+        int plane = base.getPlane();
+        int width = area.getWidth();
+        int length = area.getHeight();
+        return reachRectangle1(plane, cand.getX(), cand.getY(), dx, dy, width, length, blockAccessFlags);
+    }
 }

@@ -5,6 +5,7 @@ import com.tonic.Logger;
 import com.tonic.data.TileObjectEx;
 import com.tonic.queries.NpcQuery;
 import com.tonic.queries.TileObjectQuery;
+import com.tonic.services.pathfinder.Walker;
 import com.tonic.util.VitaPlugin;
 import com.tonic.api.game.SceneAPI;
 import net.runelite.api.Client;
@@ -83,14 +84,40 @@ public class ExamplePlugin extends VitaPlugin {
             boolean reachable = approach != null;
             WorldPoint to = obj.getWorldLocation();
             boolean sceneReach = SceneAPI.isReachable(from, to);
+
+            // If not reachable from current position, compute best walkable approach tile
+            WorldPoint bestWalkable = null;
+            if (!reachable) {
+                var candidates = IllumineReach.approachCandidates(area);
+                // Filter to reach-valid and walker-acceptable targets
+                java.util.ArrayList<WorldPoint> valid = new java.util.ArrayList<>();
+                for (WorldPoint c : candidates) {
+                    if (IllumineReach.isValidApproachForArea(area, c, 0)) {
+                        var cm = Walker.getCollisionMap();
+                        if (cm != null && cm.walkable((short) c.getX(), (short) c.getY(), (byte) c.getPlane())) {
+                            valid.add(c);
+                        }
+                    }
+                }
+                if (!valid.isEmpty()) {
+                    valid.sort(java.util.Comparator.comparingInt(p -> p.distanceTo2D(from)));
+                    bestWalkable = valid.get(0);
+                }
+            }
             if (reachable) {
                 logOnce(now, String.format(
                         "[Reach] type=OBJECT name=\"%s\" loc=(%d,%d,%d) reachable=true approach=(%d,%d,%d) sceneReachable=%s",
                         name, to.getX(), to.getY(), to.getPlane(), approach.getX(), approach.getY(), approach.getPlane(), sceneReach));
             } else {
-                logOnce(now, String.format(
-                        "[Reach] type=OBJECT name=\"%s\" loc=(%d,%d,%d) reachable=false sceneReachable=%s",
-                        name, to.getX(), to.getY(), to.getPlane(), sceneReach));
+                if (bestWalkable != null) {
+                    logOnce(now, String.format(
+                            "[Reach] type=OBJECT name=\"%s\" loc=(%d,%d,%d) reachable=false sceneReachable=%s bestWalkable=(%d,%d,%d)",
+                            name, to.getX(), to.getY(), to.getPlane(), sceneReach, bestWalkable.getX(), bestWalkable.getY(), bestWalkable.getPlane()));
+                } else {
+                    logOnce(now, String.format(
+                            "[Reach] type=OBJECT name=\"%s\" loc=(%d,%d,%d) reachable=false sceneReachable=%s bestWalkable=(none)",
+                            name, to.getX(), to.getY(), to.getPlane(), sceneReach));
+                }
                 if (config.getLogEdgeDebug()) debugEdges(from, area);
             }
             return;
@@ -114,14 +141,38 @@ public class ExamplePlugin extends VitaPlugin {
         boolean reachable = approach != null;
         WorldPoint to = npc.getWorldLocation();
         boolean sceneReach = SceneAPI.isReachable(from, to);
+
+        WorldPoint bestWalkable = null;
+        if (!reachable) {
+            var candidates = IllumineReach.approachCandidates(area);
+            java.util.ArrayList<WorldPoint> valid = new java.util.ArrayList<>();
+            for (WorldPoint c : candidates) {
+                if (IllumineReach.isValidApproachForArea(area, c, 0)) {
+                    var cm = Walker.getCollisionMap();
+                    if (cm != null && cm.walkable((short) c.getX(), (short) c.getY(), (byte) c.getPlane())) {
+                        valid.add(c);
+                    }
+                }
+            }
+            if (!valid.isEmpty()) {
+                valid.sort(java.util.Comparator.comparingInt(p -> p.distanceTo2D(from)));
+                bestWalkable = valid.get(0);
+            }
+        }
         if (reachable) {
             logOnce(now, String.format(
                     "[Reach] type=NPC name=\"%s\" loc=(%d,%d,%d) reachable=true approach=(%d,%d,%d) sceneReachable=%s",
                     name, to.getX(), to.getY(), to.getPlane(), approach.getX(), approach.getY(), approach.getPlane(), sceneReach));
         } else {
-            logOnce(now, String.format(
-                    "[Reach] type=NPC name=\"%s\" loc=(%d,%d,%d) reachable=false sceneReachable=%s",
-                    name, to.getX(), to.getY(), to.getPlane(), sceneReach));
+            if (bestWalkable != null) {
+                logOnce(now, String.format(
+                        "[Reach] type=NPC name=\"%s\" loc=(%d,%d,%d) reachable=false sceneReachable=%s bestWalkable=(%d,%d,%d)",
+                        name, to.getX(), to.getY(), to.getPlane(), sceneReach, bestWalkable.getX(), bestWalkable.getY(), bestWalkable.getPlane()));
+            } else {
+                logOnce(now, String.format(
+                        "[Reach] type=NPC name=\"%s\" loc=(%d,%d,%d) reachable=false sceneReachable=%s bestWalkable=(none)",
+                        name, to.getX(), to.getY(), to.getPlane(), sceneReach));
+            }
             if (config.getLogEdgeDebug()) debugEdges(from, area);
         }
     }
